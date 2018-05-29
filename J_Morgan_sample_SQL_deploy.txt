@@ -1,0 +1,584 @@
+---------------------------------------------------------------------------------------------------------------
+/*
+Script    : DEPLOY REQ09610 mdINR Security.sql
+Purpose   : Deploy script to build security, structure, procedures, and data for convacare database
+Returns   : Nothing
+Notice    : Copyright (c) 2015 Lincare Inc., All rights reserved.
+Author    : 02/28/2015 JRM REQ10453
+Modified  : 03/03/2015 JRM DFT10493
+Platform  : SQL Server 2008 R2
+Comments  : Compile on Convacare databases identified for package release.
+*/
+----------------------------------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------------------------------
+/*
+Script    : DEPLOY REQ09610 mdINR Security.sql
+Purpose   : T-SQL script to add permissions to ConvacareUser
+Returns   : Nothing
+Notice    : Copyright (c) 2015 Lincare Inc., All rights reserved.
+Author    : 02/28/2015 JRM REQ10453
+Modified  : 
+Platform  : SQL Server 2008 R2
+Comments  : Compile on Convacare databases identified for package release.
+*/
+----------------------------------------------------------------------------------------------------------------
+IF SUSER_ID('ConvacareUser') IS NULL
+   CREATE LOGIN [ConvacareUser] WITH PASSWORD= 'ConvacareWebSQLPass!',  -- ******* PUT PASSWORD ******
+   CHECK_POLICY = OFF, DEFAULT_DATABASE = [Convacare]
+GO
+
+USE [convacare]
+GO
+-- Create USER
+IF USER_ID('ConvacareUser') IS NULL
+   CREATE USER [ConvacareUser] FOR LOGIN [ConvacareUser] WITH DEFAULT_SCHEMA=[dbo]
+ELSE 
+   EXEC sp_change_users_login 'auto_fix', [ConvacareUser]
+GO
+
+-- Create Role
+IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = N'ConvacareRole')
+CREATE ROLE [ConvacareRole]
+AUTHORIZATION [dbo]
+GO
+
+-- Add security
+
+-- Tables (DB - Level)
+EXEC sp_addrolemember 'db_datawriter', [ConvacareUser]
+GO
+EXEC sp_addrolemember 'db_datareader', [ConvacareUser]
+GO
+EXEC sp_addrolemember 'ConvacareRole', [ConvacareUser]
+GO
+
+-- End of script
+
+---------------------------------------------------------------------------------------------------------------
+/*
+Script    : owners.sql
+Purpose   : SQL DDL to create the owners table.
+Notice    : Copyright (c) 2015 Lincare Inc. All rights reserved.
+Author    : 02/26/2015 JRM REQ10453
+Modified  : 
+Platform  : SQL Server 2008 R2
+Comments  : Compile on Convacare databases identified for package release.
+*/
+----------------------------------------------------------------------------------------------------------------
+SET QUOTED_IDENTIFIER, ANSI_NULLS, NOCOUNT ON
+GO
+
+if NOT exists (select 1 from dbo.sysobjects where id = object_id('dbo.owners') and OBJECTPROPERTY(id, N'IsUserTable') = 1)
+begin
+	Print 'Creating table owners....'
+
+       CREATE TABLE [owners](
+              [UserId] VARCHAR(7) DEFAULT NULL UNIQUE,
+              [userPassword] VARCHAR(7) DEFAULT NULL,
+              [OwnerName] VARCHAR(34) DEFAULT NULL,
+              [Address] VARCHAR(29) DEFAULT NULL,
+              [City] VARCHAR(14) DEFAULT NULL,
+              [ST] VARCHAR(2) DEFAULT NULL,
+              [Phone] VARCHAR(12) DEFAULT NULL
+              );
+end
+GO
+
+-- Check
+sp_help 'owners'
+GO
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON owners TO ConvacareRole
+GO
+
+-- End of script
+---------------------------------------------------------------------------------------------------------------
+/*
+Script    : administration.sql
+Purpose   : SQL DDL to create the administration table.
+Notice    : Copyright (c) 2015 Lincare Inc. All rights reserved.
+Author    : 02/26/2015 JRM REQ10453
+Modified  : 
+Platform  : SQL Server 2008 R2
+Comments  : Compile on Convacare databases identified for package release.
+*/
+----------------------------------------------------------------------------------------------------------------
+SET QUOTED_IDENTIFIER, ANSI_NULLS, NOCOUNT ON
+GO
+
+if NOT exists (select 1 from dbo.sysobjects where id = object_id('dbo.administration') and OBJECTPROPERTY(id, N'IsUserTable') = 1)
+begin
+	Print 'Creating table administration....'
+
+       CREATE TABLE [administration] (
+              [UserId] VARCHAR(12) DEFAULT NULL,
+              [userPassword] VARCHAR(7) DEFAULT NULL,
+              [FirstName] VARCHAR(5) DEFAULT NULL,
+              [LastName] VARCHAR(7) DEFAULT NULL
+              );
+end
+GO
+
+-- Check
+sp_help 'administration'
+GO
+
+GRANT SELECT ON administration TO ConvacareRole
+GO
+
+-- End of script
+SET QUOTED_IDENTIFIER, ANSI_NULLS ON 
+GO
+
+IF object_id('usp_qryAdminLogin') IS NOT NULL 
+BEGIN 
+    DROP PROC dbo.usp_qryAdminLogin
+      PRINT 'Dropped proc usp_usp_qryAdminLogin'
+END 
+GO       
+
+CREATE PROCEDURE dbo.usp_qryAdminLogin
+	-- Add the parameters for the stored procedure here
+@UserID VARCHAR(12),
+@userPassword VARCHAR(7)
+
+WITH ENCRYPTION
+AS
+----------------------------------------------------------------------------------------------------------------
+/*
+Procedure : dbo.usp_qryAdminLogin
+Purpose   : Procedure to verify ConvaCare Owner UserName and Password exist
+Returns   : 1 
+
+Notice    : Copyright (c) 2015 Lincare Inc., All rights reserved.
+Created   : 01/12/2015 JRM CHG09477 
+Modified  : 
+
+Platform  : SQL Server 2008
+Comments  : CHG09477  ConvaCare Redesign project
+----------------------------------------------------------------------------------------------------------------
+*/
+SET NOCOUNT ON
+      
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+
+    -- Insert statements for procedure here
+	SELECT UserID, userPassword	    
+	FROM  administration  
+	WHERE UserID = @UserID AND userPassword = @userPassword
+END
+RETURN(0)
+GO
+
+
+IF  object_id('usp_qryAdminLogin') IS NOT NULL 
+BEGIN 
+    GRANT EXECUTE ON usp_qryAdminLogin TO ConvacareRole
+    PRINT 'Created proc usp_qryAdminLogin'
+END 
+ELSE
+BEGIN 
+    PRINT 'FAILED to create proc usp_qryAdminLogin'
+END
+GO    
+--End of procedure
+SET QUOTED_IDENTIFIER, ANSI_NULLS ON 
+GO
+
+IF object_id('usp_insOwnerAdd') IS NOT NULL 
+BEGIN 
+    DROP PROC dbo.usp_insOwnerAdd
+      PRINT 'Dropped proc usp_insOwnerAdd'
+END 
+GO       
+
+CREATE PROCEDURE dbo.usp_insOwnerAdd
+@UserID varchar(7),
+@userPassword varchar (7),
+@OwnerName varchar (34),
+@Address varchar (29),
+@City varchar (14),
+@ST varchar (2),
+@Phone varchar (12)
+
+WITH ENCRYPTION
+AS
+----------------------------------------------------------------------------------------------------------------
+/*
+Procedure : dbo.usp_insOwnerAdd
+Purpose   : Procedure to add new owner to table owners
+Returns   : 1 
+
+Notice    : Copyright (c) 2015 Lincare Inc., All rights reserved.
+Created   : 02/14/2015 JRM CHG09477 
+Modified  : 03/03/2015 JRM DFT10493
+Platform  : SQL Server 2008
+Comments  : CHG09477  ConvaCare Redesign project
+----------------------------------------------------------------------------------------------------------------
+*/
+SET NOCOUNT ON
+
+BEGIN
+ INSERT INTO owners
+ (UserId,userPassword,OwnerName,Address,City,ST,Phone)
+ VALUES 
+ (@UserID,@userPassword,@OwnerName,@Address,@City,@ST,@Phone)
+END
+RETURN(0)
+GO
+
+IF  object_id('usp_insOwnerAdd') IS NOT NULL 
+BEGIN 
+    GRANT EXECUTE ON usp_insOwnerAdd TO ConvacareRole
+    PRINT 'Created proc usp_insOwnerAdd'
+END 
+ELSE
+BEGIN 
+    PRINT 'FAILED to create proc usp_insOwnerAdd'
+END
+GO    
+--End of procedure
+SET QUOTED_IDENTIFIER, ANSI_NULLS ON 
+GO 
+
+IF object_id('usp_delOwnerDelete') IS NOT NULL 
+BEGIN 
+    DROP PROC dbo.usp_delOwnerDelete
+      PRINT 'Dropped proc usp_delOwnerDelete'
+END 
+GO       
+
+CREATE PROCEDURE dbo.usp_delOwnerDelete
+@UserID varchar(7)
+
+WITH ENCRYPTION
+AS
+----------------------------------------------------------------------------------------------------------------
+/*
+Procedure : dbo.usp_delOwnerDelete
+Purpose   : Procedure to delete a record from owner table
+Returns   : 1 
+
+Notice    : Copyright (c) 2015 Lincare Inc., All rights reserved.
+Created   : 02/14/2015 JRM CHG09477 
+Modified  : 
+
+Platform  : SQL Server 2008
+Comments  : CHG09477  ConvaCare Redesign project
+----------------------------------------------------------------------------------------------------------------
+*/
+SET NOCOUNT ON
+
+BEGIN
+	DELETE FROM owners
+	WHERE UserID = @UserID
+END
+RETURN(0)
+GO
+
+IF  object_id('usp_delOwnerDelete') IS NOT NULL 
+BEGIN 
+    GRANT EXECUTE ON usp_delOwnerDelete TO ConvacareRole
+    PRINT 'Created proc usp_delOwnerDelete'
+END 
+ELSE
+BEGIN 
+    PRINT 'FAILED to create proc usp_delOwnerDelete'
+END
+GO    
+--End of procedure
+SET QUOTED_IDENTIFIER, ANSI_NULLS ON 
+GO
+
+IF object_id('usp_qryOwnerLogin') IS NOT NULL 
+BEGIN 
+    DROP PROC dbo.usp_qryOwnerLogin
+      PRINT 'Dropped proc usp_qryOwnerLogin'
+END 
+GO       
+
+CREATE PROCEDURE dbo.usp_qryOwnerLogin
+	-- Add the parameters for the stored procedure here
+@UserID VARCHAR(7),
+@userPassword VARCHAR(7)
+
+WITH ENCRYPTION
+AS
+----------------------------------------------------------------------------------------------------------------
+/*
+Procedure : dbo.usp_qryOwnerLogin
+Purpose   : Procedure to verify ConvaCare Owner UserName and Password exist
+Returns   : 1 
+
+Notice    : Copyright (c) 2015 Lincare Inc., All rights reserved.
+Created   : 01/12/2015 JRM CHG09477 
+Modified  : 
+
+Platform  : SQL Server 2008
+Comments  : CHG09477  ConvaCare Redesign project
+----------------------------------------------------------------------------------------------------------------
+*/
+
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+	SET NOCOUNT ON
+	
+BEGIN
+    -- Insert statements for procedure here
+	SELECT  UserID, userPassword	    
+	FROM    owners    
+	WHERE UserID = @UserID AND userPassword = @userPassword
+END
+RETURN(0)
+GO
+
+IF  object_id('usp_qryOwnerLogin') IS NOT NULL 
+BEGIN 
+    GRANT EXECUTE ON usp_qryOwnerLogin TO ConvacareRole
+    PRINT 'Created proc usp_qryOwnerLogin'
+END 
+ELSE
+BEGIN 
+    PRINT 'FAILED to create proc usp_qryOwnerLogin'
+END
+GO    
+--End of procedure
+SET QUOTED_IDENTIFIER, ANSI_NULLS ON 
+GO
+
+IF object_id('usp_qryOwnerLookup') IS NOT NULL 
+BEGIN 
+    DROP PROC dbo.usp_qryOwnerLookup
+      PRINT 'Dropped proc usp_qryOwnerLookup'
+END 
+GO       
+
+CREATE PROCEDURE dbo.usp_qryOwnerLookup
+
+WITH ENCRYPTION
+AS
+----------------------------------------------------------------------------------------------------------------
+/*
+Procedure : dbo.usp_qryOwnerLookup
+Purpose   : Procedure to perform lookup on owners table.
+Returns   : 1 
+
+Notice    : Copyright (c) 2015 Lincare Inc., All rights reserved.
+Created   : 02/14/2015 JRM CHG09477 
+Modified  : 
+
+Platform  : SQL Server 2008
+Comments  : CHG09477  ConvaCare Redesign project
+----------------------------------------------------------------------------------------------------------------
+*/
+SET NOCOUNT ON
+
+BEGIN
+SELECT * FROM owners
+END
+RETURN(0)
+GO
+
+IF  object_id('usp_qryOwnerLookup') IS NOT NULL 
+BEGIN 
+    GRANT EXECUTE ON usp_qryOwnerLookup TO ConvacareRole
+    PRINT 'Created proc usp_qryOwnerLookup'
+END 
+ELSE
+BEGIN 
+    PRINT 'FAILED to create proc usp_qryOwnerLookup'
+END
+GO    
+--End of procedure
+SET QUOTED_IDENTIFIER, ANSI_NULLS ON 
+GO
+
+IF object_id('usp_updOwnerEdit') IS NOT NULL 
+BEGIN 
+    DROP PROC dbo.usp_updOwnerEdit
+      PRINT 'Dropped proc usp_updOwnerEdit'
+END 
+GO       
+
+CREATE PROCEDURE dbo.usp_updOwnerEdit
+@UserID varchar(7),
+@userPassword varchar (7),
+@OwnerName varchar (34),
+@Address varchar (29),
+@City varchar (14),
+@ST varchar (2),
+@Phone varchar (12)
+
+WITH ENCRYPTION
+AS
+----------------------------------------------------------------------------------------------------------------
+/*
+Procedure : dbo.usp_updOwnerEdit
+Purpose   : Procedure to perform update on record in owner table.
+Returns   : 1 
+
+Notice    : Copyright (c) 2015 Lincare Inc., All rights reserved.
+Created   : 02/14/2014 JRM CHG09477 
+Modified  : 
+
+Platform  : SQL Server 2008
+Comments  : CHG09477  ConvaCare Redesign project
+----------------------------------------------------------------------------------------------------------------
+*/
+SET NOCOUNT ON
+
+BEGIN
+  UPDATE owners
+  SET userPassword = @userPassword,
+  	  OwnerName = @OwnerName,
+      Address = @Address,
+      City = @City,
+      ST = @ST,
+      Phone = @Phone
+  WHERE UserID = @UserID
+END
+RETURN(0)
+GO
+
+IF  object_id('usp_updOwnerEdit') IS NOT NULL 
+BEGIN 
+    GRANT EXECUTE ON usp_updOwnerEdit TO ConvacareRole
+    PRINT 'Created proc usp_updOwnerEdit'
+END 
+ELSE
+BEGIN 
+    PRINT 'FAILED to create proc usp_updOwnerEdit'
+END
+GO    
+--End of procedure
+
+
+----------------------------------------------------------------------------------------------------------------
+/*
+Script    : Convacare Data Script.sql
+Purpose   : T-SQL script to INSERT Convacare data
+Returns   : Nothing
+Notice    : Copyright (c) 2015 Lincare Inc., All rights reserved.
+Created   : 11/07/15 JRM
+Modified  : 
+Platform  : SQL Server (2008) 
+Comments  : Execute on each Convacare database identified for package release.
+*/
+----------------------------------------------------------------------------------------------------------------
+		
+GO
+SET NUMERIC_ROUNDABORT OFF
+GO
+SET ANSI_PADDING, ANSI_WARNINGS, CONCAT_NULL_YIELDS_NULL, ARITHABORT, QUOTED_IDENTIFIER, ANSI_NULLS, NOCOUNT ON
+GO
+SET XACT_ABORT ON
+GO
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE
+GO
+
+IF EXISTS (SELECT 1 FROM administration)
+BEGIN 
+    PRINT 'FAILED to insert data due to existing records'
+END
+
+ELSE
+BEGIN 
+BEGIN TRANSACTION
+-- Pointer used for text / image updates. This might not be needed, but is declared here just in case
+DECLARE @pv binary(16)
+
+PRINT(N'Add 2 rows to [dbo].[administration]')
+INSERT INTO [dbo].[administration] ([UserId], [userPassword], [FirstName], [LastName]) VALUES ('jillmorgan', 'medline', 'Jill', 'Morgan')
+INSERT INTO [dbo].[administration] ([UserId], [userPassword], [FirstName], [LastName]) VALUES ('joycecoulter', 'medline', 'Joyce', 'Coulter')
+COMMIT TRANSACTION
+END
+GO
+
+IF EXISTS (SELECT 1 FROM owners)
+BEGIN 
+    PRINT 'FAILED to insert data due to Key Constraint'
+END
+
+ELSE
+BEGIN 
+BEGIN TRANSACTION
+PRINT(N'Add 68 rows to [dbo].[owners]')
+
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('291311S', '291311S', 'LINCARE PROC/LAWRENCEBURG', '105 HILLTOP PLAZA', 'LAWRENCEBURG', 'KY', '5028394557')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('291312S', '291312S', 'Fields Home Health', '145 Citizens Lane Suite 200', 'Hazard', 'KY', '6064352020')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('292011S', '292011S', 'HOSPITAL DISCOUNT PHARMACY', '210 19th Street West', 'Jasper', 'AL', '')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('292012S', '292012S', 'The Medicine Chest Wellness Center', '514 First Street N.', 'Alabaster', 'AL', '205-621-2310')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('292112S', 'cassie', 'TYSON HOME CARE', '530 J. M. ASH ROAD', 'HOLLY SPRINGS', 'MS', '6622523688')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('292211S', '292211S', 'LINCARE PROC/ELDON DRUG', '101 S. MAPLE ST.', 'ELDON', 'MO', '5733924588')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('292212S', '292212S', 'LINCARE PROC/ECONOMY HEALTH MART', '101 N THORTON', 'RICHMOND', 'MO', '8167763315')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('292215S', '292215S', 'R & R Express Medical Services', '8791 Blue Ridge Blvd', 'Kansas City', 'MO', '816-761-9800')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('292311S', '292311S', 'LINCARE PROC/STAN''S PHARMACY', '7787 RHEA COUNTY HWY', 'DAYTON', 'TN', '4237753030')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('292312S', 'oxygen1', 'LINCARE PRO/PHIPPS PHARMACY', '205-B Hospital Drive', 'McKenzie', 'TN', '731-352-0820')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('292313S', '292313S', 'Lee''s Total Health Pharmacy', '725 Parkway Suite #11', 'Sevierville', 'TN', '865-908-4873')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('292711S', '292711S', 'LINCARE PROC/MAIER FAMILY PHARMACY', '411 MAIN STREET', 'MAPLETON', 'IA', '7128811033')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('292712S', 'oxygen', 'LINCARE PROC/Q & T PHARMACY', '920 W. 5TH STREET', 'WATERLOO', 'IA', '3192335216')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('298917S', '298917S', 'LINCARE PROC/SCHWIETERMANS', '120 HILLCREST DR', 'COLDWATER', 'OH', '4196784556')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('298919S', '298919S', 'LINCARE PROC/SCHWIETERMANS', '1052 E SPRING ST', 'SAINT MARYS', 'OH', '4193943219')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('298920S', '298920S', 'LINCARE PROC/SCHWIETERMANS', '364 N MAIN ST', 'MINSTER', 'OH', '4196282305')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('298921S', '298921S', 'LINCARE PROC/SCHWIETERMANS', '1302 DEFIANCE ST', 'WAPAKONETA', 'OH', '4197385959')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('298924S', '298924S', 'LINCARE PROC/DERRY DRUG INC', '1191 WESTWOOD DR', 'VAN WERT', 'OH', '4192381318')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299013S', 'hps200', 'LINCARE PROC/HENDERSON PHRM', '186 W MAIN ST', 'CHILLICOTHE', 'OH', '7407021170')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299018S', '299018S', 'LINCARE PROC/SCHWIETERMANS', 'TWO NORTH WASHINGTON ST', 'NEW BREMEN', 'OH', '4196292336')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299024S', '299024S', 'LINCARE PROC/MEDICINE SHOPPE', '821 SCIOTO ST', 'URBANA', 'OH', '9376533914')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299025S', '299025S', 'LINCARE PROC/MEDICIN & MORE', '100 FORT JEFFERSON ST', 'GREENVILLE', 'OH', '9375471642')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299026S', '299026S', 'LINCARE PROC/MEDICINE SHOPPE', '19 N MECHANIC ST', 'LEBANON', 'OH', '5139322911')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299027S', '299027S', 'LINCARE PROC/MEDICINE SHOPPE', '55 W HIGH ST', 'LONDON', 'OH', '7408525131')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299030S', '299030S', 'LINCARE PROC/MEDICINE SHOPPE', '1971 CENTRAL AVE', 'MIDDLETOWN', 'OH', '5134248180')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299032S', '299032S', 'LINCARE PROC/STOLTZ DRUGS', '40 WATKINS ST', 'NELSONVILLE', 'OH', '7407532484')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299125S', '299125S', 'LINCARE PROC/SALEM APOTH', '#3 LYON BLOCK - PUBLIC SQ', 'SALEM', 'IN', '8128834500')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299129S', 'deett', 'LINCARE PROC/ODON PHARMACY', '200 W MAIN ST', 'ODON', 'IN', '8126364600')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299130S', '299130S', 'LINCARE PROC/PRSCRPTN SHOPPE', '2005 STATE ST STE B', 'WASHINGTON', 'IN', '8122547666')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299131S', '299131S', 'LINCARE PROC/CROWDERS HLTH', '631 E 16TH STREET', 'BEDFORD', 'IN', '8122755949')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299136S', '299136S', 'LINCARE PROC/FAMILY DRUG', '810 W COMMERCE ST', 'BROWNSTOWN', 'IN', '8123584502')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299138S', '299138S', 'LINCARE PROC/GREENVILLE PHARMACY', '117 NORTH MAIN STREET', 'GREENVILLE', 'KY', '2703383800')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299217S', '299217S', 'LINCARE PROC/MEDICINE SHOPPE', '900 E MT VERNON ST', 'SOMERSET', 'KY', '6066799227')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299219S', '299219S', 'LINCARE PROC/BLUEGRASS MED', '636 S COLLEGE ST', 'HARRODSBURG', 'KY', '8597344614')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299220S', '299220S', 'LINCARE PROC/HANGERS PHARM', '1712 SPRING ST', 'JEFFERSONVILLE', 'IN', '8122807135')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299224S', '299224S', 'LINCARE PROC/MATHES PHARM', '1621 CHARLESTOWN RD', 'NEW ALBANY', 'IN', '8129495299')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299226S', '299226S', 'LINCARE PROC/MEDSHOPE MEDCL', '930 S MAIN ST', 'NICHOLASVILLE', 'KY', '8598872841')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299314S', '299314S', 'LINCARE PROC/BOWMANS MED', '310 W LAFAYETTE STREET', 'OTTAWA', 'IL', '8154340330')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299414S', 'Medline', 'LINCARE PROC/DEXTER PRFSSNL', '800 FULTON ST', 'LOGANSPORT', 'IN', '5747225600')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299422S', '299422S', 'LINCARE PROC/DEKALB PHARM', '1314 E 7TH ST STE 104', 'AUBURN', 'IN', '2609258000')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299431S', 'medline', 'LINCARE PROC/DAYWALT PHARM', '948 N CASS STREET', 'WABASH', 'IN', '2605634155')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299433S', '299433S', 'LINCARE PROC/MOORES HOMHLTH', '1206 N BALDWIN', 'MARION', 'IN', '7657330140')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299434S', '299434S', 'LINCARE PROC/MOORES HOMHLTH', '608 W MARKLAND', 'KOKOMO', 'IN', '7654545210')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299438S', '299438S', 'LINCARE PROC/WEBBS FAMLY PHAR', '724 MAIN ST', 'ROCHESTER', 'IN', '5742232216')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299516S', '299516s', 'LINCARE PROC/WESTFIELD PHAR', '103 S UNION', 'WESTFIELD', 'IN', '3178969378')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299517S', '299517S', 'LINCARE PROC/SHERIDAN ELLT', '508 E 10TH ST', 'SHERIDAN', 'IN', '3177584171')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299519S', '299519S', 'LINCARE PROC/FRANKFORT CTR', '400 S HOKE AVE STE 3', 'FRANKFORT', 'IN', '7656540930')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299524S', '299524S', 'LINCARE PROC/ST CLARE MED', '1710 LAFAYETTE RD', 'CRAWFORDSVILLE', 'IN', '7653648532')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299528S', '299528S', 'LINCARE PROC/MAURERS WELLNS', '555 E HWY 40', 'BRAZIL', 'IN', '8124481881')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299540S', 'welcome', 'LINCARE PROC/RYBACK MEDICAL', '2307 S. 3RD STREET', 'TERRE HAUTE', 'IN', '8122389603')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299541S', '299541S', 'Family PharmaCare Center', '500 Sagamore Parkway West #6W', 'West Lafayette', 'IN', '')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299613S', '299613S', 'LINCARE PROC/SAV-MOR PHARM', '596 OAK ST', 'NEOGA', 'IL', '2178952238')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299614S', 'fisher', 'LINCARE PROC/FISHER PHARM', '2007 CAMP JACKSON RD', 'CAHOKIA', 'IL', '6183322500')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299617S', '299617S', 'LINCARE PROC/HARMONS PHARM', '111 E MAIN ST', 'OBLONG', 'IL', '6185924231')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299620S', '299620S', 'LINCARE PROC/MARYVILLE PHRM', '2700 N CENTER ST', 'MARYVILLE', 'IL', '6182887474')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299637S', '299637S', 'LINCARE PROC/HERRIN DRUG', '116 N PARK AVE', 'HERRIN', 'IL', '6189425315')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299638S', '299638S', 'LINCARE PROC/MEDICINE SHOPE', '447 S BUCHANAN', 'EDWARDSVILLE', 'IL', '6186924441')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299640S', '299640S', 'Sav-Mor Pharmacy', '121 West North Avenue', 'Flora', 'IL', '618-662-9470')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299711S', '299711S', 'LINCARE PROC/DART DRUG', '1101 MEMORIAL DR', 'DALTON', 'GA', '7062781900')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299722S', '299722S', 'Ledford RX Express Pharmacy', '1201-A North Main Street', 'La Fayette', 'GA', '706-638-1281')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299723', 'oxygen', 'Medical Villa Pharmacy', '1520 Laney Walker Blvd', 'Augusta', 'GA', '706-722-7355')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299820S', '299820S', 'LINCARE PROC/N POINTE PHARM', '528 SPARTA RD', 'SANDERSVILLE', 'GA', '4785526114')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299821S', '299821S', 'LINCARE PROC/HAY''S PHARM', '2205 E OGLETHORPE BLVD', 'ALBANY', 'GA', '2294322363')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299913S', '299913S', 'LINCARE PROC/RUSHVILLE PHAR', '302 N MAIN ST', 'RUSHVILLE', 'IN', '7659323328')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299915S', '299915S', 'LINCARE PROC/NOLTES PHARM', 'ONE EAST GEORGE ST', 'BATESVILLE', 'IN', '8129342414')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299917S', '299917S', 'Cardinal Home Medical', '722 Bundy Avenue', 'New Castle', 'IN', '7655939300')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('299931S', '299931S', 'LINCARE PROC/HENDERSON PHRM', '100 E JEFFERSON ST', 'FRANKLIN', 'IN', '3177365631')
+INSERT INTO [dbo].[owners] ([UserId], [userPassword], [OwnerName], [Address], [City], [ST], [Phone]) VALUES ('Admin', 'Admin', 'Adminstration', 'ConvaCare Services', '', '', '')
+COMMIT TRANSACTION
+END
+GO
+
+-- End of Data script
+
+  -- End of DEPLOY script
